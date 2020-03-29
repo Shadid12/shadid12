@@ -1,62 +1,33 @@
 import Head from 'next/head'
 import '../styles/style.sass'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import Amplify, {Auth, API} from 'aws-amplify'
+import config from '../config'
 
 
-const products = [
-  [
-    {
-      id: '1',
-      name: 'Macchiato',
-      price: 3.50,
-      imgUrl: 'https://media3.s-nbcnews.com/j/newscms/2019_33/2203981/171026-better-coffee-boost-se-329p_67dfb6820f7d3898b5486975903c2e51.fit-760w.jpg'
-    },
-    {
-      id: '2',
-      name: 'Esspresso',
-      price: 2.50,
-      imgUrl: 'https://coffeebros.com/wp-content/uploads/2019/04/Espresso-crema-Here%E2%80%99s-why-it%E2%80%99s-important.png'
-    },
-    {
-      id: '3',
-      name: 'Americano',
-      price: 3.95,
-      imgUrl: 'https://www.craftcoffeeguru.com/wp-content/uploads/2019/02/americano-9.jpg?x84304'
-    },
-    {
-      id: '4',
-      name: 'Hot Chocolate',
-      price: 5.50,
-      imgUrl: 'https://www.thespruceeats.com/thmb/7-cXy5t3G8u4G0546N7JfJC3lwk=/1660x1245/smart/filters:no_upscale()/homemade-hot-chocolate-15-56a8bdfe5f9b58b7d0f4bbe2.jpg'
-    }
-  ],
-  [
-    {
-      id: '5',
-      name: 'Americano',
-      price: 3.95,
-      imgUrl: 'https://www.craftcoffeeguru.com/wp-content/uploads/2019/02/americano-9.jpg?x84304'
-    },
-    {
-      id: '6',
-      name: 'Hot Chocolate',
-      price: 5.50,
-      imgUrl: 'https://www.thespruceeats.com/thmb/7-cXy5t3G8u4G0546N7JfJC3lwk=/1660x1245/smart/filters:no_upscale()/homemade-hot-chocolate-15-56a8bdfe5f9b58b7d0f4bbe2.jpg'
-    },
-    {
-      id: '7',
-      name: 'Americano',
-      price: 3.95,
-      imgUrl: 'https://www.craftcoffeeguru.com/wp-content/uploads/2019/02/americano-9.jpg?x84304'
-    },
-    {
-      id: '8',
-      name: 'Hot Chocolate',
-      price: 5.50,
-      imgUrl: 'https://www.thespruceeats.com/thmb/7-cXy5t3G8u4G0546N7JfJC3lwk=/1660x1245/smart/filters:no_upscale()/homemade-hot-chocolate-15-56a8bdfe5f9b58b7d0f4bbe2.jpg'
-    }
-  ]
-]
+Amplify.configure({
+  Auth: {
+    mandatorySignIn: true,
+    region: config.cognito.REGION,
+    userPoolId: config.cognito.USER_POOL_ID,
+    identityPoolId: config.cognito.IDENTITY_POOL_ID,
+    userPoolWebClientId: config.cognito.APP_CLIENT_ID
+  },
+  API: {
+    endpoints: [
+      {
+        name: "orders",
+        endpoint: config.apiGateway.URL,
+        region: config.apiGateway.REGION
+      },
+      {
+        name: "products",
+        endpoint: config.apiGateway.URL,
+        region: config.apiGateway.REGION
+      }
+    ]
+  }
+});
 
 const Home = () => {
 
@@ -64,9 +35,58 @@ const Home = () => {
   const [showModal, setModalVis] = useState(false)
   const [signinModal, setsigninModal] = useState(false)
   const [signupModal, setsignupModal] = useState(false)
+  const [products, setProducts] = useState([])
+  const [email, setEmail] = useState('')
+  const [pass, setPass] = useState('')
+  const [user, setUser] = useState(null)
+  const [total, setTotal] = useState(0)
+
+
+  useEffect(() => {
+    async function updateUser() {
+      try {
+        let user = await Auth.currentAuthenticatedUser()
+        setUser(user)
+      } catch {
+        setUser(null)
+      }
+    }
+    async function fetchData() {
+      try {
+        let res = await API.get('products', '/products');
+        
+        let all = []
+        let count = Math.floor(res.Count/4)
+        let remainder = res.Count % 4
+        let i = 0;
+        while (i < count) {
+          let toPush = []
+          for(let j = 1 * i * 4; j < 4 * (i + 1); j++) {
+            toPush.push(res.Items[j])
+          }
+          all.push(toPush)
+          i++
+        }
+        
+        if(remainder > 0) {
+          let toPush = []
+          for(let kk = 4 * i; kk < res.Count; kk++) {
+            toPush.push(res.Items[kk])
+          }
+          all.push(toPush);
+        }
+        setProducts(all)
+      } catch (error) {
+        console.log('error loading', error)
+      }
+    }
+    fetchData()
+    updateUser()
+  }, []);
 
   const addToCart = (item) => {
     setCart([...cart, item])
+    setTotal(total + item.price)
   }
 
   const openModal = () => {
@@ -87,16 +107,46 @@ const Home = () => {
     let i = newCart.findIndex((item) => item.id === a.id)
     newCart.splice(i, 1)
     setCart(newCart)
+    setTotal(total - a.price)
   }
 
-  const login = () => {
+  const handleEmail = (e) => {
+    setEmail(e.target.value)
+  }
 
+  const handlePass = (e) => {
+    setPass(e.target.value)
+  }
+
+  const login = async (event) => {
+    event.preventDefault()
+
+    try {
+      let res = await Auth.signIn(email, pass)
+      setsigninModal(!signinModal)
+    } catch (e) {
+      alert(e.message)
+    }
   }
 
   const signup = () => {
 
   }
-  
+
+  const handleLogout = async () => {
+    await Auth.signOut()
+    setUser(null)
+  }
+
+  const paynow = async () => {
+    try {
+      const res = await API.post("orders", "/orders", {
+        body: { "price": "3.95", "products": ["shadid12","shadid1233"] }
+      })
+    } catch (error) {
+      console.log('error', error)
+    }
+  }
   return (
     <div className="container">
       <Head>
@@ -113,9 +163,15 @@ const Home = () => {
         <div className="level-item">
           <div className="field has-addons">
             <p className="control">
-              <button className="button" onClick={closeSignin}>
-                Signin
-              </button>
+              {user ? 
+                <button className="button" onClick={handleLogout}>
+                  Signout
+                </button>
+              : 
+                <button className="button" onClick={closeSignin}>
+                  Signin
+                </button>
+              }
             </p>
           </div>
         </div>
@@ -126,7 +182,7 @@ const Home = () => {
           <button className="subtitle is-5" onClick={openModal}>
             <strong> {cart.length} 🛒</strong>
           </button>
-          <button className="subtitle is-5">
+          <button className="subtitle is-5" onClick={paynow}>
             <strong>Pay Now 💰</strong>
           </button>
         </div>
@@ -173,7 +229,7 @@ const Home = () => {
                       </li>
                     ))}
                     <hr />
-                    <span>Totoal: 0</span>
+                    <span>Totoal: {total}</span>
                   </div>
                 </section>
                 <footer className="modal-card-foot">
@@ -197,12 +253,22 @@ const Home = () => {
                   <div >
                     <div class="field">
                       <div class="control">
-                        <input class="input is-primary" type="text" placeholder="Email" />
+                        <input 
+                          class="input is-primary" 
+                          type="text" 
+                          placeholder="Email" 
+                          onChange={handleEmail}
+                        />
                       </div>
                     </div>
                     <div class="field">
                       <div class="control">
-                        <input class="input is-primary" type="password" placeholder="Password" />
+                        <input 
+                          class="input is-primary" 
+                          type="password" 
+                          placeholder="Password"
+                          onChange={handlePass}
+                        />
                       </div>
                     </div>
                     <div class="field">
